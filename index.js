@@ -36,6 +36,10 @@ app.use("/api", routes);
 app.use(routeNotFound);
 app.use(errorHandler);
 
+app.get("/", (req, res) => {
+  return res.status(200).send("Welcome To Mame Task Managment API");
+});
+
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => {
