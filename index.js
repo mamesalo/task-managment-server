@@ -18,6 +18,7 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://localhost:3001",
+      "https://task-managment-client.vercel.app",
       process.env.FRONTEND_URL,
     ],
     methods: ["GET", "POST", "DELETE", "PUT"],
