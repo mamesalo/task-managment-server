@@ -22,13 +22,21 @@ const protectRoute = async (req, res, next) => {
     } else {
       return res
         .status(401)
-        .json({ status: false, message: "Not authorized. Try login again." });
+        .json({
+          status: false,
+          statusText: "Unauthorized",
+          message: "Not authorized. Try login again.",
+        });
     }
   } catch (error) {
     console.error(error);
     return res
       .status(401)
-      .json({ status: false, message: "Not authorized. Try login again." });
+      .json({
+        status: false,
+        statusText: "Unauthorized",
+        message: "Not authorized. Try login again.",
+      });
   }
 };
 
