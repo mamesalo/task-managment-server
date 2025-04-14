@@ -1,41 +1,29 @@
-import { response } from "express";
 import User from "../models/user.js";
 import { createJWT } from "../utils/index.js";
-import Notice from "../models/notification.js";
-
+import { sendEmail } from "../utils/sendEmail.js";
+import jwt from "jsonwebtoken";
 export const registerUser = async (req, res) => {
   try {
-    const { name, email, password, isAdmin, role, title } = req.body;
+    const { name, email, password } = req.body;
 
     const userExist = await User.findOne({ email });
 
     if (userExist) {
       return res.status(400).json({
         status: false,
-        message: "User already exists",
+        message: "email already exists",
       });
     }
-
     const user = await User.create({
       name,
       email,
       password,
-      isAdmin,
-      role,
-      title,
+      verificationSentAt: new Date(),
     });
-
-    if (user) {
-      isAdmin ? createJWT(res, user._id) : null;
-
-      user.password = undefined;
-
-      res.status(201).json(user);
-    } else {
-      return res
-        .status(400)
-        .json({ status: false, message: "Invalid user data" });
-    }
+    const token = createJWT(user._id);
+    const url = `${process.env.FRONTEND_URL}/verify/${token}`;
+    await sendEmail(user.email, "Verify your email address", url);
+    res.status(200).json({ message: "Verification link sent to your email" });
   } catch (error) {
     console.log(error);
     return res.status(400).json({ status: false, message: error.message });
@@ -45,6 +33,13 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({
+        status: false,
+        message: "Please fill all fields",
+      });
+    }
+
     const user = await User.findOne({ email });
 
     if (!user) {
@@ -53,21 +48,32 @@ export const loginUser = async (req, res) => {
         .json({ status: false, message: "Invalid email or password." });
     }
 
-    if (!user?.isActive) {
-      return res.status(401).json({
-        status: false,
-        message: "User account has been deactivated, contact the administrator",
-      });
+    if (!user.isVerified) {
+      const now = new Date();
+      const lastSent = user.verificationSentAt;
+      if (!lastSent || now - lastSent > 60 * 60 * 1000) {
+        const token = createJWT(user._id);
+        const url = `${process.env.FRONTEND_URL}/verify/${token}`;
+        await sendEmail(user.email, "Verify your email address", url);
+
+        user.verificationSentAt = now;
+        await user.save();
+        return res.status(400).json({
+          message: "A new verification email has been sent to your email.",
+        });
+      }
+      return res
+        .status(400)
+        .json({ message: "Please verify your email before logging in." });
     }
 
     const isMatch = await user.matchPassword(password);
 
     if (user && isMatch) {
-      createJWT(res, user._id);
-
+      const token = createJWT(user._id);
       user.password = undefined;
 
-      res.status(200).json(user);
+      res.status(200).json({ token, user });
     } else {
       return res
         .status(401)
@@ -78,100 +84,82 @@ export const loginUser = async (req, res) => {
     return res.status(400).json({ status: false, message: error.message });
   }
 };
-
-export const logoutUser = async (req, res) => {
+export const changeUserPassword = async (req, res) => {
   try {
-    res.cookie("token", "", {
-      htttpOnly: true,
-      expires: new Date(0),
+    const userId = req.userId;
+    const { old_password, password } = req.body;
+
+    if (!old_password || !password) {
+      return res.status(400).json({
+        status: false,
+        message: "Please fill all fields",
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (user) {
+      const isMatch = await user.matchPassword(old_password);
+
+      if (isMatch) {
+        user.password = password;
+        await user.save();
+        res.status(201).json({
+          status: true,
+          message: `Password chnaged successfully.`,
+        });
+      } else {
+        return res
+          .status(401)
+          .json({ status: false, message: "password is not correct" });
+      }
+    } else {
+      res.status(404).json({ status: false, message: "User not found" });
+    }
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ status: false, message: error.message });
+  }
+};
+export const verfiyUserEmail = async (req, res) => {
+  try {
+    const decodedToken = jwt.verify(req.params.token, process.env.JWT_SECRET);
+
+    const user = await User.findByIdAndUpdate(decodedToken.userId, {
+      isVerified: true,
     });
-
-    res.status(200).json({ message: "Logout successful" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res
+      .status(200)
+      .send({ message: "✅ Email verified successfully! You can now log in." });
   } catch (error) {
     console.log(error);
-    return res.status(400).json({ status: false, message: error.message });
-  }
-};
 
-export const getTeamList = async (req, res) => {
-  try {
-    const users = await User.find().select(
-      "name title role email isActive isAdmin"
-    );
-
-    res.status(200).json(users);
-  } catch (error) {
-    console.log(error);
-    return res.status(400).json({ status: false, message: error.message });
-  }
-};
-
-export const getAllNotificationsList = async (req, res) => {
-  try {
-    const { userId } = req.user;
-
-    const notice = await Notice.find({
-      team: userId,
-    }).populate("task", "title");
-
-    res.status(201).json(notice);
-  } catch (error) {
-    console.log(error);
-    return res.status(400).json({ status: false, message: error.message });
-  }
-};
-export const getNotificationsList = async (req, res) => {
-  try {
-    const { userId } = req.user;
-
-    const notice = await Notice.find({
-      team: userId,
-      isRead: { $nin: [userId] },
-    }).populate("task", "title");
-
-    res.status(201).json(notice);
-  } catch (error) {
-    console.log(error);
-    return res.status(400).json({ status: false, message: error.message });
+    res.status(500).send({ message: error.message });
   }
 };
 
 export const updateUserProfile = async (req, res) => {
   try {
-    const { userId, isAdmin } = req.user;
-    const { _id } = req.body;
-    console.log(req.body);
-
-    const id =
-      isAdmin && userId === _id
-        ? userId
-        : isAdmin && userId !== _id
-        ? _id
-        : userId;
-
-    const user = await User.findById(id);
-
-    console.log("user befor");
-    console.log(user);
+    const userId = req.userId;
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({
+        status: false,
+        message: "Please fill all fields",
+      });
+    }
+    const user = await User.findById(userId);
 
     if (user) {
-      user.name = req.body.name ? req.body.name : user.name;
-      user.title = req.body.title ? req.body.title : user.title;
-      user.role = req.body.role ? req.body.role : user.role;
-      user.isActive = req.body.isActive ? req.body.isActive : user.isActive;
-      user.isAdmin = req.body.isAdmin ? req.body.isAdmin : user.isAdmin;
-      user.email = req.body.email ? req.body.email : user.email;
-
-      console.log("user after");
-      console.log(user);
+      user.name = name ? req.body.name : user.name;
       const updatedUser = await user.save();
-
-      user.password = undefined;
 
       res.status(201).json({
         status: true,
         message: "Profile Updated Successfully.",
-        user: updatedUser,
       });
     } else {
       res.status(404).json({ status: false, message: "User not found" });
@@ -181,80 +169,54 @@ export const updateUserProfile = async (req, res) => {
     return res.status(400).json({ status: false, message: error.message });
   }
 };
-
-export const markNotificationRead = async (req, res) => {
+export const forgetPassword = async (req, res) => {
   try {
-    const { userId } = req.user;
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({
+        status: false,
+        message: "Please fill all fields",
+      });
+    }
+    const user = await User.findOne({ email });
 
-    const { isReadType, id } = req.query;
-
-    if (isReadType === "all") {
-      await Notice.updateMany(
-        { team: userId, isRead: { $nin: [userId] } },
-        { $push: { isRead: userId } },
-        { new: true }
-      );
-    } else {
-      await Notice.findOneAndUpdate(
-        { _id: id, isRead: { $nin: [userId] } },
-        { $push: { isRead: userId } },
-        { new: true }
-      );
+    if (!user) {
+      return res.status(400).json({
+        status: false,
+        message: "email not exists",
+      });
     }
 
-    res.status(201).json({ status: true, message: "Done" });
+    const token = createJWT(user._id);
+    const url = `${process.env.FRONTEND_URL}/reset-password/${token}`;
+    await sendEmail(user.email, "Reset your password", url);
+    res.status(200).json({ message: "Reset password link sent to your email" });
   } catch (error) {
     console.log(error);
     return res.status(400).json({ status: false, message: error.message });
   }
 };
-
-export const changeUserPassword = async (req, res) => {
+export const resetPassword = async (req, res) => {
   try {
-    const { userId } = req.user;
-
+    const { password } = req.body;
+    const userId = req.userId;
+    if (!password) {
+      return res.status(400).json({
+        status: false,
+        message: "Please fill all fields",
+      });
+    }
     const user = await User.findById(userId);
 
-    if (user) {
-      user.password = req.body.password;
-
-      await user.save();
-
-      user.password = undefined;
-
-      res.status(201).json({
-        status: true,
-        message: `Password chnaged successfully.`,
+    if (!user) {
+      return res.status(400).json({
+        status: false,
+        message: "user not exists",
       });
-    } else {
-      res.status(404).json({ status: false, message: "User not found" });
     }
-  } catch (error) {
-    console.log(error);
-    return res.status(400).json({ status: false, message: error.message });
-  }
-};
-
-export const activateUserProfile = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const user = await User.findById(id);
-
-    if (user) {
-      user.isActive = req.body.isActive; //!user.isActive
-
-      await user.save();
-
-      res.status(201).json({
-        status: true,
-        message: `User account has been ${
-          user?.isActive ? "activated" : "disabled"
-        }`,
-      });
-    } else {
-      res.status(404).json({ status: false, message: "User not found" });
-    }
+    user.password = password;
+    await user.save();
+    res.status(200).json({ message: "Password reset successfully" });
   } catch (error) {
     console.log(error);
     return res.status(400).json({ status: false, message: error.message });

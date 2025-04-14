@@ -2,7 +2,12 @@ import mongoose, { Schema } from "mongoose";
 
 const taskSchema = new Schema(
   {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
     title: { type: String, required: true },
+    description: { type: String, required: true },
     date: { type: Date, default: new Date() },
     priority: {
       type: String,
@@ -14,35 +19,6 @@ const taskSchema = new Schema(
       default: "todo",
       enum: ["todo", "in progress", "completed"],
     },
-    activities: [
-      {
-        type: {
-          type: String,
-          default: "assigned",
-          enum: [
-            "assigned",
-            "started",
-            "in progress",
-            "bug",
-            "completed",
-            "commented",
-          ],
-        },
-        activity: String,
-        date: { type: Date, default: Date.now() },
-        by: { type: Schema.Types.ObjectId, ref: "User" },
-      },
-    ],
-
-    subTasks: [
-      {
-        title: String,
-        date: Date,
-        tag: String,
-      },
-    ],
-    team: [{ type: Schema.Types.ObjectId, ref: "User" }],
-    isTrashed: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

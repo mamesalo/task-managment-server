@@ -9,18 +9,13 @@ import mongoose from "mongoose";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 5500;
+const PORT = process.env.PORT || 5501;
 
 const app = express();
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://task-managment-client.vercel.app",
-      process.env.FRONTEND_URL,
-    ],
+    origin: [process.env.FRONTEND_URL],
     methods: ["GET", "POST", "DELETE", "PUT"],
     credentials: true,
   })
@@ -29,12 +24,9 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(cookieParser());
-
 app.get("/", (req, res) => {
   return res.status(200).send("Welcome To Mame Task Managment API");
 });
-app.use(morgan("dev"));
 app.use("/api", routes);
 
 app.use(routeNotFound);
